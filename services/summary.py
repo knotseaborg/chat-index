@@ -50,12 +50,12 @@ class Summarizer:
         )
         return result.startswith("y")
 
-    def generate_summary(self, messages: list[Message]) -> str:
+    def generate_summary(self, contents: list[str]) -> str:
         with open("prompts/summary_generation.txt", "r") as f:
             system_prompt = f.read()
         # Refer system prompt
         human_prompt = "\n".join(
-            ["Messages:", *[f"{i+1}. {m.content}" for i, m in enumerate(messages)]]
+            ["Messages:", *[f"{i+1}. {content}" for i, content in enumerate(contents)]]
         )
 
         return self._llm.invoke(
