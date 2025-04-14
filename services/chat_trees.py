@@ -1,5 +1,6 @@
 from typing import Optional, TypedDict
 from dataclasses import dataclass, field
+from collections import OrderedDict
 from db.db import DB
 
 
@@ -15,7 +16,7 @@ class SummaryNode(TypedDict):
     content: str
     start_message_id: int
     end_message_id: int
-    parent_id: int
+    parent_id: Optional[int]
     child_ids: list[int]
 
 
@@ -32,11 +33,11 @@ class SummaryIndex:
     )  # summary_id --> SummaryNode
 
 
-class ChatTree:
+class MessageTree:
     def __init__(self, thread_id: int, db: DB):
         self._db = db
-        self.message_index = self._load_message_tree(thread_id)
-        self.summary_index = self._load_summary_index(thread_id)
+        self.thread_id = thread_id
+        self.index = self._load_message_tree(thread_id)
 
     def _load_message_tree(self, thread_id: int) -> dict[int, MessageNode]:
         """
@@ -66,6 +67,13 @@ class ChatTree:
 
         return nodes  # You can now traverse from any node
 
+
+class SummaryTree:
+    def __init__(self, message_tree: MessageTree, db: DB):
+        self._db = db  # Used to fetch summaries from db
+        self.message_tree = message_tree  # Used to walk the tree
+        self.summary_index = self._load_summary_index(self.message_tree.thread_id)
+
     def _load_summary_index(self, thread_id: int):
         """Loads the index for quick sunmmary traceability"""
 
@@ -73,7 +81,7 @@ class ChatTree:
         id_lookup: dict[int, SummaryNode] = {}
         start_message_lookup: dict[int, int] = {}
         end_message_lookup: dict[int, int] = {}
-        
+
         # Load compnents
         summaries = self._db.fetch_summaries(thread_id)
         for summary in summaries:
@@ -92,13 +100,42 @@ class ChatTree:
         # Map summaries
         for summary in summaries:
             # Find parent
-            parent_end_message_id = self.message_index[summary.start_message_id]["parent_id"]
-            parent_id = end_message_lookup[parent_end_message_id]
-            id_lookup[summary.id]["parent_id"] = parent_id
+            parent_end_message_id = self.message_tree.index[summary.start_message_id]["parent_id"]
+            if parent_end_message_id:
+                parent_id = end_message_lookup[parent_end_message_id]
+                id_lookup[summary.id]["parent_id"] = parent_id
 
             # Find children
-            for child_start_message_id in self.message_index[summary.end_message_id]["child_ids"]:
+            for child_start_message_id in self.message_tree.index[
+                summary.end_message_id
+            ]["child_ids"]:
                 child_id = start_message_lookup[child_start_message_id]
                 id_lookup[summary.id]["child_ids"].append(child_id)
 
         return SummaryIndex(start_message_lookup, end_message_lookup, id_lookup)
+
+
+class TreeCache:
+    """LRU is a good policy to optimize long chat access"""
+
+    def __init__(self, db: DB, max_capacity: int):
+        self.cache: OrderedDict[int, tuple[MessageTree, SummaryTree]] = OrderedDict()
+        self.db = db
+        self.max_capacity = max_capacity
+        self.curr_capacity = 0
+
+    def get(self, thread_id: int) -> tuple[MessageTree, SummaryIndex]:
+        """Implements LRU elimination"""
+        if self.cache.get(thread_id) is None:
+            if self.max_capacity == self.curr_capacity:
+                self.cache.popitem(last=True)  # Pop the last item in dict
+                self.curr_capacity -= 1
+
+            message_tree = MessageTree(thread_id, self.db)
+            summary_tree = SummaryTree(message_tree, self.db)
+
+            self.cache[thread_id] = (message_tree, summary_tree)
+            self.curr_capacity += 1
+            self.cache.move_to_end(thread_id, last=False)  # Move to front of dict
+
+        return self.cache[thread_id]

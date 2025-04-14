@@ -59,7 +59,7 @@ For engineers, researchers, strategists, and thinkers who want to:
 
 This is a work-in-progress, backend-first POC.
 
-- Frontend is minimal or stubbed (planned for completion post-Golden Week)
+- Frontend is minimal or stubbed.
 - Summary merging, UI navigation, and full reindexing support are under design
 - Designed with long-term extensibility, versioning, and visual traceability in mind
 
