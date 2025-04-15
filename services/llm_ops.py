@@ -1,14 +1,16 @@
 import json
+from typing import Optional
 from langchain_openai import ChatOpenAI
 from db.models import Message
 from langchain_core.messages import HumanMessage, SystemMessage
 
 
-class Summarizer:
+class LLMOps:
     def __init__(self, llm: ChatOpenAI):
         self._llm = llm
 
     def group(self, messages: list[Message]) -> list[list[Message]]:
+        """Groups Messages such that they each group can form coherent summaries"""
         with open("prompts/group_policy.txt", "r") as f:
             system_prompt = f.read()
         # Refer system prompt
@@ -23,14 +25,22 @@ class Summarizer:
             result = []
             for group in groups:
                 result.append([messages[i] for i in group])
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as exc:
             raise ValueError(
                 f"Failed to parse reponse into JSON formation: Raw output: {raw_response}"
-            )
+            ) from exc
 
         return result
 
-    def detect_topic_shift(self, prev_msg: str, new_msg: str) -> bool:
+    def detect_topic_shift(self, prev_msg: Optional[str], new_msg: str) -> bool:
+        """Detectss topic shift between messages"""
+
+        if prev_msg is None:
+            print(
+                "This message does not have a previous message, thus summary cannot be generated"
+            )
+            return False
+
         with open("prompts/topic_shift_detection.txt", "r") as f:
             system_prompt = f.read()
         # Refer system prompt
@@ -51,6 +61,7 @@ class Summarizer:
         return result.startswith("y")
 
     def generate_summary(self, contents: list[str]) -> str:
+        """A simple prompt to generate summaries for a given list of strings"""
         with open("prompts/summary_generation.txt", "r") as f:
             system_prompt = f.read()
         # Refer system prompt

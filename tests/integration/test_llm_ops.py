@@ -1,7 +1,7 @@
 import pytest
 import os
 from dotenv import load_dotenv
-from services.summary import Summarizer
+from services.llm_ops import LLMOps
 from db.models import Message
 
 from langchain_openai import ChatOpenAI
@@ -12,8 +12,8 @@ load_dotenv()
 llm = ChatOpenAI(model=os.getenv("OPENAI_MODEL"))
 
 @pytest.fixture
-def summarizer():
-    return Summarizer(llm)
+def llm_ops():
+    return LLMOps(llm)
 
 
 @pytest.fixture
@@ -25,19 +25,19 @@ def messages():
     ]
 
 
-def test_grouping(summarizer, messages):
-    result = summarizer.group(messages)
+def test_grouping(llm_ops, messages):
+    result = llm_ops.group(messages)
     assert isinstance(result, list)
     assert all(isinstance(g, list) for g in result)
     assert all(isinstance(m, Message) for g in result for m in g)
 
 
-def test_summary_generation(summarizer, messages):
-    summary = summarizer.generate_summary(messages)
+def test_summary_generation(llm_ops, messages):
+    summary = llm_ops.generate_summary(messages)
     assert isinstance(summary, str)
 
 
-def test_topic_shift_detection(summarizer):
-    result = summarizer.detect_topic_shift("We should refactor the database.", "Let's switch to real-time analytics.")
+def test_topic_shift_detection(llm_ops):
+    result = llm_ops.detect_topic_shift("We should refactor the database.", "Let's switch to real-time analytics.")
     assert isinstance(result, bool)
     assert result is True

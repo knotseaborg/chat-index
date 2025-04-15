@@ -116,3 +116,4 @@ class DB:
             )
             self.db_session.delete(summary)
         return summary
+

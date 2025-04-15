@@ -67,6 +67,15 @@ class MessageTree:
 
         return nodes  # You can now traverse from any node
 
+    def add_message(self, message_id: int, message_content: str, prev_message_id: int):
+        """Adds message to the tree"""
+        self.index[message_id] = {
+            "id": message_id,
+            "content": message_content,
+            "parent_id": prev_message_id,
+        }
+        self.index[prev_message_id]["child_ids"].append(message_id)
+
 
 class SummaryTree:
     def __init__(self, message_tree: MessageTree, db: DB):
@@ -100,7 +109,9 @@ class SummaryTree:
         # Map summaries
         for summary in summaries:
             # Find parent
-            parent_end_message_id = self.message_tree.index[summary.start_message_id]["parent_id"]
+            parent_end_message_id = self.message_tree.index[summary.start_message_id][
+                "parent_id"
+            ]
             if parent_end_message_id:
                 parent_id = end_message_lookup[parent_end_message_id]
                 id_lookup[summary.id]["parent_id"] = parent_id
@@ -114,6 +125,37 @@ class SummaryTree:
 
         return SummaryIndex(start_message_lookup, end_message_lookup, id_lookup)
 
+    def add_summary(
+        self, _id: int, content: str, start_message_id: int, end_message_id: int
+    ):
+        """Adds summary to the summary tree, and the associated lookup"""
+        prev_summary_end_message_id = self.message_tree.index[start_message_id][
+            "parent_id"
+        ]
+        if prev_summary_end_message_id:
+            summary_parent = self.summary_index.end_message_lookup[
+                self.message_tree.index[start_message_id]["parent_id"]
+            ]
+        else:
+            summary_parent = None
+
+        summary: SummaryNode = {
+            "id": _id,
+            "content": content,
+            "start_message_id": start_message_id,
+            "end_message_id": end_message_id,
+            "parent_id": summary_parent,
+            "child_ids": [],
+        }
+
+        self.summary_index.summary_id_lookup[prev_summary_end_message_id][
+            "child_ids"
+        ].append(_id)
+        self.summary_index.summary_id_lookup[id] = summary
+        self.summary_index.start_message_lookup[start_message_id] = _id
+        self.summary_index.end_message_lookup[end_message_id] = _id
+
+
 
 class TreeCache:
     """LRU is a good policy to optimize long chat access"""
@@ -124,7 +166,7 @@ class TreeCache:
         self.max_capacity = max_capacity
         self.curr_capacity = 0
 
-    def get(self, thread_id: int) -> tuple[MessageTree, SummaryIndex]:
+    def get(self, thread_id: int) -> tuple[MessageTree, SummaryTree]:
         """Implements LRU elimination"""
         if self.cache.get(thread_id) is None:
             if self.max_capacity == self.curr_capacity:

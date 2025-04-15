@@ -1,34 +1,10 @@
+import os
 from typing import Callable, Optional
-from services.chat_tree import ChatTree, MessageNode
+from services.chat_trees import TreeCache
 from db.db import DB
 from db.models import Message, Link, Summary
 from services.agent import Agent
-from services.summary import Summarizer
-
-
-class MemoryTreeHandler:
-    """Note: Deletion triggers rebuilding. So it is not handled here"""
-    """Memory tree modifications only"""
-
-    def __init__(self, tree: ChatTree):
-        self.tree = tree
-
-    # Wrong # Wrng, must add dict, not db
-    def add_message(self, message: Message, prev_message_id: int):
-        self.tree.message_index[message.id] = {"id": message.id, "content": message.content, "parent_id": message}
-        self.tree.message_index[prev_message_id]["child_ids"].append(message.id)
-
-    # Wrng, must add dict, not db
-    def add_summary(self, summary: Summary):
-        self.tree.summary_index.summary_id_lookup[summary.id] = summary
-        self.tree.summary_index.start_message_lookup[summary.start_message_id] = (
-            summary.id
-        )
-        self.tree.summary_index.end_message_lookup[summary.end_message_id] = summary.id
-
-    def collapse_summary(self, collapsed_summary_ids: list[int], summary: Summary):
-        # Future work. Would be neat!
-        pass
+from services.llm_ops import LLMOps
 
 
 class DBTreeHandler:
@@ -61,59 +37,82 @@ class Handler:
     def __init__(
         self,
         db: DB,
-        summarizer: Summarizer,
+        tree_cache: TreeCache,
+        llm_ops: LLMOps,
     ):
-        self._db_handler = DBTreeHandler(db)
-        self._tree = ChatTree(thread_id=None, db=db)
-        self._tree_handler = MemoryTreeHandler() # Keeps changing depending on thread_id, so management is internal
-        self._summarizer = summarizer
+        self._db = db
+        self._tree_cache = tree_cache
+        self._llm_ops = llm_ops
 
-    def add_message(self, content: str, thread_id: int, prev_message_id: int):
-        self._tree_handler._sync_tree(thread_id)
+    def add_message(self, content: str, thread_id: int, prev_message_id: Optional[int]):
+        """Inserts message into both in-memory tree and database"""
+        # Database insertion
+        message = self._db.insert_message(thread_id, content)
+        # Insert the link to previous message
+        if prev_message_id is not None:
+            self._db.insert_link(
+                thread_id=thread_id,
+                prev_message_id=prev_message_id,
+                next_message_id=message.id,
+            )
 
-        message = self._db_handler.add_message(content, thread_id, prev_message_id)
-        self._tree_handler.add_message(message, prev_message_id)
+        # Load tree
+        message_tree, _ = self._tree_cache.get(thread_id)
+        # Add message
+        message_tree.add_message(message.id, content, prev_message_id)
 
     def _add_summary(
-        self, prev_message_id: int, message_content: str
+        self, thread_id: int, prev_message_id: int, message_content: str
     ) -> Optional[Summary]:
         """
-        0. Check if topic shift has been detected.
-        1. Gathers the summarizable contents from tree.
-        2. Generates summary
-        3. Inserts summary into db
-        4. Inserts sumamry to tree
+        WIP: Needs guard code to prevent summary generation from rogue nodes
+
+        Assumption: prev_message_id is either an end_node of summary, or not summarized at all.
+        Essentially: 
+        [---summary----]---------prev_node_node-current_message 
+        [---summary----prev_node]-current_message
+
+        Care must be taken for this assumption to not be violated
+
+        Note; Current message cannot be included in the summary
         """
-        prev_message = self.db
-        if not self._summarizer.detect_topic_shift(
-            prev_message.content, message_content
+        message_tree, summary_tree = self._tree_cache.get(thread_id)
+        prev_message_node = message_tree.index[prev_message_id]
+        # No summary if there is no topic shift between messages
+        # because summaries need to be semantically coherent
+        if not self._llm_ops.detect_topic_shift(
+            prev_message_node["content"], message_content
         ):
             return None
 
-        contents, start_message_id, end_message_id = (
-            self._tree_handler.get_summarizable_data(prev_message_id)
-        )
-        summary_content = self._summarizer.generate_summary(contents)
-        summary = self._db_handler.add_summary(
-            summary_content, start_message_id, end_message_id
-        )
-        self._tree_handler.add_summary(summary)
+        # Cannot create summary if previous message was the end_point of the previous summary
+        if prev_message_id in summary_tree.summary_index.end_message_lookup:
+            return None
 
-    def get_summarizable_data(self, prev_message_id: int) -> tuple[list[str], int, int]:
-        """
-        From the provided message, retrace the last occuring summary to find summarizable data
+        # Accumulate summarizable content, and map the spanning nodes
+        summarizable_content: list[str] = []
+        end_message_id = prev_message_id # prev_message is a valid summarizable content
 
-        Note: This excludes the message_id's message
-        """
-        # Accumilate unsummarized messages
-        content: list[str] = []
-        start_message_id = end_message_id = prev_message_id
-        while prev_message_id not in self.tree.summary_index.end_message_lookup:
+        # This will run atleast once! If not, something is wrong. Must fail loudly!
+        while (prev_message_id is None) or (prev_message_id not in summary_tree.summary_index.end_message_lookup):
             start_message_id = prev_message_id
-            prev_message_id = self.tree.message_index[prev_message_id]["parent_id"]
-            content.append(self.tree.message_index[prev_message_id]["content"])
 
-        return (content[::-1], start_message_id, end_message_id)
+            message = message_tree.index[prev_message_id]
+            summarizable_content.append(message["content"])
+            
+            # Update iterable
+            prev_message_id = message["parent_id"]
+
+        # Generate summary and add to memory and db
+        summarized_content = self._llm_ops.generate_summary(summarizable_content)
+        # Add summary to database
+        summary = self._db.insert_summary(summarized_content, start_message_id, end_message_id, embedding_file=None)
+        # Add summary to tree
+        summary_tree.add_summary(
+            summary.id, summarized_content, start_message_id, end_message_id
+        )
+
+## WIP: From here. Manage split message!!! ----------------- HERE!!------------------
 
     def get_front_span_messages(self, message_id: int) -> list[MessageNode]: # Includes message_id
         messages : list[MessageNode] = [self.tree.message_index[message_id]]
@@ -140,16 +139,16 @@ class Handler:
         self.
 
 class ChatUpdateDispatcher:
-    def __init__(self, thread_id: int, db: DB, summarizer: Summarizer):
+    def __init__(self, thread_id: int, db: DB, llm_ops: llm_ops):
         self.thread_id = thread_id
         self._db = db
-        self._summarizer = summarizer
+        self._llm_ops = llm_ops
         self._tree = ChatTree(thread_id, db)
 
         self._memory_tree_handler = MemoryTreeHandler(self._tree)
         self._db_tree_handler = DBTreeHandler(self._db)
         self._handler = Handler(
-            self._db_tree_handler, self._memory_tree_handler, self._summarizer
+            self._db_tree_handler, self._memory_tree_handler, self._llm_ops
         )
 
         # Action registry
@@ -184,7 +183,7 @@ class ChatUpdateDispatcher:
 
 # class ChatManager:
 
-#     def __init__(self, db: DB, summarizer: Summarizer, agent: Agent):
+#     def __init__(self, db: DB, llm_ops: LLMOps, agent: Agent):
 #         self._db = db
 #         self._summarizer = summarizer
 #         self._agent = agent
