@@ -43,7 +43,11 @@ class DB:
         )
 
     def fetch_message(self, message_id: int) -> models.Message:
-        return self.db_session.query(models.Message).filter(models.Message.id == message_id).first()
+        return (
+            self.db_session.query(models.Message)
+            .filter(models.Message.id == message_id)
+            .first()
+        )
 
     def fetch_links(self, thread_id: int) -> list[models.Link]:
         return (
@@ -116,4 +120,3 @@ class DB:
             )
             self.db_session.delete(summary)
         return summary
-

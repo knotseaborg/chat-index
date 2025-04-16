@@ -2,6 +2,7 @@ import pytest
 from services.llm_ops import LLMOps
 from db.models import Message
 
+
 # Replace this with an actual mocked ChatOpenAI or use langchain's FakeLLM
 class FakeLLM:
     def invoke(self, messages):
@@ -45,5 +46,7 @@ def test_generate_summary_returns_string(llm_ops, sample_messages):
 
 
 def test_detect_topic_shift_returns_boolean(llm_ops):
-    result = llm_ops.detect_topic_shift("Let's talk about UI", "How about auth systems?")
+    result = llm_ops.detect_topic_shift(
+        "Let's talk about UI", "How about auth systems?"
+    )
     assert isinstance(result, bool)

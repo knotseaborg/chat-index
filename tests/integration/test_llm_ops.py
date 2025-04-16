@@ -11,6 +11,7 @@ load_dotenv()
 
 llm = ChatOpenAI(model=os.getenv("OPENAI_MODEL"))
 
+
 @pytest.fixture
 def llm_ops():
     return LLMOps(llm)
@@ -38,6 +39,8 @@ def test_summary_generation(llm_ops, messages):
 
 
 def test_topic_shift_detection(llm_ops):
-    result = llm_ops.detect_topic_shift("We should refactor the database.", "Let's switch to real-time analytics.")
+    result = llm_ops.detect_topic_shift(
+        "We should refactor the database.", "Let's switch to real-time analytics."
+    )
     assert isinstance(result, bool)
     assert result is True
