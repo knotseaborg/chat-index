@@ -120,3 +120,29 @@ class DB:
             )
             self.db_session.delete(summary)
         return summary
+
+    def delete_link(self, previous_message_id: int, next_message_id: int):
+        """Deletes one link. Used to detatch branch"""
+        with self.db_session.begin():
+            link = (
+                self.db_session.query(models.Link)
+                .filter(
+                    models.Link.previous_message_id == previous_message_id
+                    and models.Link.next_message_id == next_message_id
+                )
+                .first()
+            )
+            self.db_session.delete(link)
+
+    def delete_message(self, _id: int):
+        """
+        Deletes a single messasge.
+        WIP: Could possibly add batch deletion too! 
+        """
+        with self.db_session.begin():
+            message = (
+                self.db_session.query(models.Message)
+                .filter(models.Message.id == _id)
+                .first()
+            )
+            self.db_session.delete(message)

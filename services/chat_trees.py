@@ -234,3 +234,11 @@ class TreeCache:
             self.cache.move_to_end(thread_id, last=False)  # Move to front of dict
 
         return self.cache[thread_id]
+
+    def delete(self, thread_id: int) -> None:
+        """
+        Deletes tree data from cache. Meant to trash invalid trees!
+        Invalid trees are those, which are not in sync with the database
+        """
+        if self.cache.get(thread_id) is not None:
+            del self.cache[thread_id]

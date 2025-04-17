@@ -68,7 +68,7 @@ class Handler:
         """
         Assumption: prev_message_id is either an end_node of summary, or not summarized at all.
         Essentially:
-        [---summary----]---------prev_node_node-current_message
+        [---summary----]---[]--[]--[]--[prev_node_node]-[current_message]
         [---summary----prev_node]-current_message
 
         Care must be taken for this assumption to not be violated
@@ -129,7 +129,7 @@ class Handler:
         """
         Splits a summary, from the branch_off_message_node and persists it in memory and db
 
-        Note: If this function runs, it implies that the split is valid 
+        Note: If this function runs, it implies that the split is valid
             and an unsplit summary span is being split.
         """
 
@@ -182,6 +182,58 @@ class Handler:
             post_summary.content,
         )
 
+    def delete_branch(self, thread_id: int, branch_start_message_id: int) -> None:
+        """
+        Nukes a branch. Use with care!
+        
+        Note: This is not thread-safe. Can lead to dirty reads
+        """
+        message_tree, summary_tree = self._tree_cache.get(thread_id)
+
+        ## Delete Messages
+
+        # Chain deletions, every message and summary in the branch is deleted
+        branch_off_message_id = message_tree.index[branch_start_message_id]["parent"]
+        
+        # Detatch branch_start_message from branch_off_message.
+        if branch_off_message_id is not None:            
+            self._db.delete_link(branch_off_message_id, branch_start_message_id)
+
+        # Delete remaining messages in branch
+        message_ids: list[int] = [branch_start_message_id]
+        while message_ids:
+            message_id = message_ids.pop()
+            child_ids = message_tree.index[message_id]["child_ids"]
+            # Add children for future exploration
+            message_ids.extend(child_ids)
+            # Detach current node from children
+            for child_id in child_ids:
+                self._db.delete_link(message_id, child_id)
+            # Delete the current node
+            self._db.delete_message(message_id)
+
+        ## Delete Summaries
+
+        branch_start_summary_id = summary_tree.index.start_message_lookup.get(
+            branch_start_message_id, None
+        )
+        # If no summary exists at the start point, this cannot proceed
+        if branch_start_summary_id is None:
+            return
+
+        # Since summary tree is derived from the message tree, no deletion of links necessary
+        # Delete summaries from db
+        summary_ids: list[int] = [branch_start_summary_id]
+        while summary_ids:
+            summary_id = summary_ids.pop()
+            self._db.delete_summary(summary_id)
+            summary = summary_tree.index.summary_id_lookup[summary_id]
+            summary_ids.extend(summary["child_ids"])
+
+        # Delete invalid trees.
+        # This forces a re-construction from db during next call to the LRU cache.
+        self._tree_cache.delete(thread_id)
+
 
 class ChatUpdateDispatcher:
     def __init__(self, thread_id: int, db: DB, llm_ops: llm_ops):
@@ -224,60 +276,3 @@ class ChatUpdateDispatcher:
 
     def add_message(self, content: str, prev_message_id: int):
         self.tree.message_index[prev_message_id][""]
-
-
-# class ChatManager:
-
-#     def __init__(self, db: DB, llm_ops: LLMOps, agent: Agent):
-#         self._db = db
-#         self._summarizer = summarizer
-#         self._agent = agent
-
-#         self.memory_tree: Optional[MessageNode] = None
-
-#     def handle_user_message(
-#         self, thread_id: int, content: str, previous_message_id: Optional[int]
-#     ) -> dict:
-#         # Insert user's message
-#         user_message = self._db.insert_message(thread_id=thread_id, content=content)
-
-#         # Create a link to the previous message
-#         if previous_message_id is not None:
-#             self._db.insert_link(
-#                 thread_id=thread_id,
-#                 prev_message_id=previous_message_id,
-#                 next_message_id=user_message.id,
-#             )
-
-#         # 3. Generate AI response
-#         ai_message = self._agent.generate_response(content, thread_id)
-#         ai_message = self._db.insert_message(thread_id, content=ai_message)
-#         self._db.insert_link(
-#             thread_id=thread_id,
-#             prev_message_id=user_message.id,
-#             next_message_id=ai_message.id,
-#         )
-
-#         # 4. Fetch previous message and check for topic shift
-#         summary_text = None
-#         if previous_message_id is not None:
-#             previous_message = self._db.fetch_message(previous_message_id)
-#             if self._summarizer.detect_topic_shift(
-#                 previous_message.content, user_message.content
-#             ):
-#                 # Get recent messages (user + bot message) and summarize
-#                 recent_messages = [previous_message, user_message, ai_message]
-#                 summary_text = self._summarizer.generate_summary(recent_messages)
-#                 self._db.insert_summary(
-#                     content=summary_text,
-#                     start_message_id=recent_messages[0].id,
-#                     end_message_id=recent_messages[-1].id,
-#                     embedding_file=None,
-#                 )
-
-#         return {
-#             "user_message": {"id": user_message.id, "content": user_message.content},
-#             "ai_response": {"id": ai_message.id, "content": ai_message.content},
-#             "linked_from": previous_message_id,
-#             "summary_created": summary_text,
-#         }
