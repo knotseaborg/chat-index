@@ -155,6 +155,17 @@ class SummaryTree:
         self.index.start_message_lookup[start_message_id] = _id
         self.index.end_message_lookup[end_message_id] = _id
 
+    def count_unsummarized_messages(self, message_id: int):
+        """
+        Strictly assumes that message_id is either the end node of a summary,
+        or message_id is yet to be summarized.
+        """
+        count = 0
+        while message_id not in self.index.end_message_lookup:
+            count+=1
+            message_id = self.message_tree.index[message_id]["parent_id"]
+        return count
+
     def split_summary(
         self,
         _id: int,
@@ -202,9 +213,9 @@ class SummaryTree:
         self.index.end_message_lookup[pre_summary["end_message_id"]] = pre_summary[
             "end_message_id"
         ]
-        self.index.start_message_lookup[post_summary["start_message_id"]] = post_summary[
-            "start_message_id"
-        ]
+        self.index.start_message_lookup[post_summary["start_message_id"]] = (
+            post_summary["start_message_id"]
+        )
         self.index.end_message_lookup[post_summary["end_message_id"]] = post_summary[
             "end_message_id"
         ]
