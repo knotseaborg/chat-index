@@ -34,23 +34,23 @@ class Handler:
         Inserts message and generate corresponding summary in memory tree and database
         """
         # Database insertion
-        message = self._db.insert_message(thread_id, content)
+        message_id = self._db.insert_message(thread_id, content)
         # Insert the link to previous message
         if prev_message_id is not None:
             self._db.insert_link(
                 thread_id=thread_id,
                 prev_message_id=prev_message_id,
-                next_message_id=message.id,
+                next_message_id=message_id,
             )
 
         # Load tree
         message_tree, _ = self._tree_cache.get(thread_id)
         # Add message
-        message_tree.add_message(message.id, content, prev_message_id)
+        message_tree.add_message(message_id, content, prev_message_id)
 
         if trigger_summarization:  # Usually, the summary must be triggered
             self._add_summary(thread_id, prev_message_id, content, summary_batch_size)
-        return message.id
+        return message_id
 
     def _add_summary(
         self,
@@ -60,7 +60,7 @@ class Handler:
         batch_size: int,
     ):
         """
-        Supports the add_message method; is optionally executable through trigger parameter.
+        Supports the add_message method; by being executable through trigger parameter.
 
         Assumption: prev_message_id is either an end_node of summary, or not summarized at all.
         Note:Care must be taken for this assumption to not be violated
@@ -94,17 +94,19 @@ class Handler:
 
         # Generate summary and add to memory and db
         summarized_content = self._llm_ops.generate_summary(summarizable_content)
-        summary = self._db.insert_summary(  # Add summary to database
+        summary_id = self._db.insert_summary(  # Add summary to database
             summarized_content, start_message_id, end_message_id, embedding_file=None
         )
         summary_tree.add_summary(  # Add summary to tree
-            summary.id, summarized_content, start_message_id, end_message_id
+            summary_id, summarized_content, start_message_id, end_message_id
         )
 
-    def split_summary(self, thread_id: int, branch_off_message_id: int) -> tuple[int, int]:
+    def split_summary(
+        self, thread_id: int, branch_off_message_id: int
+    ) -> tuple[int, int]:
         """
         Splits a summary, from the branch_off_message_node and persists it in memory and db
-        
+
         Returns split summary ids
 
         Note: If this function runs, it implies that the split is valid
@@ -126,15 +128,15 @@ class Handler:
         ## Persist Split in Database
         summary_id = summary_tree.index.start_message_lookup[pre_start_message_id]
         self._db.delete_summary(summary_id)
-        pre_summary = self._db.insert_summary(
+        pre_summary_id = self._db.insert_summary(
             pre_content, pre_start_message_id, pre_end_message_id
         )
-        post_summary = self._db.insert_summary(
+        post_summary_id = self._db.insert_summary(
             post_content, post_start_message_id, post_end_message_id
         )
         # Invalidate cache, force rebuild tree.
         del self._tree_cache[thread_id]
-        return pre_summary.id, post_summary.id
+        return pre_summary_id, post_summary_id
 
     def _generate_split_pre_summary_data(
         self,

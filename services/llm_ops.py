@@ -1,8 +1,10 @@
 import json
 from typing import Optional
+
 from langchain_openai import ChatOpenAI
-from db.models import Message
 from langchain_core.messages import HumanMessage, SystemMessage
+
+from db.models import Message
 
 
 class LLMOps:

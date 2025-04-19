@@ -1,3 +1,5 @@
+# WIP: Requires mechanism to track root and branch selections
+
 from typing import Optional, TypedDict
 from dataclasses import dataclass, field
 from collections import OrderedDict
@@ -34,6 +36,7 @@ class SummaryIndex:
 
 
 class MessageTree:
+    # WIP: Requires mechanism to track root and branch selections
     def __init__(self, thread_id: int, db: DB):
         self._db = db
         self.thread_id = thread_id
@@ -49,9 +52,9 @@ class MessageTree:
         links = self._db.fetch_links(thread_id)
 
         nodes: dict[int, MessageNode] = {
-            msg.id: {
-                "id": msg.id,
-                "content": msg.content,
+            msg["id"]: {
+                "id": msg["id"],
+                "content": msg["content"],
                 "parent_id": None,
                 "child_ids": [],
             }
@@ -59,8 +62,8 @@ class MessageTree:
         }
 
         for link in links:
-            parent = nodes.get(link.previous_message_id)
-            child = nodes.get(link.next_message_id)
+            parent = nodes.get(link["previous_message_id"])
+            child = nodes.get(link["next_message_id"])
 
             child["parent_id"] = parent["id"]
             parent["child_ids"].append(child["id"])
@@ -78,7 +81,9 @@ class MessageTree:
 
 
 class SummaryTree:
+    # WIP: Requires mechanism to track root and branch selections
     def __init__(self, message_tree: MessageTree, db: DB):
+
         self._db = db  # Used to fetch summaries from db
         self.message_tree = message_tree  # Used to walk the tree
         self.index = self._load_index(self.message_tree.thread_id)
@@ -95,33 +100,33 @@ class SummaryTree:
         summaries = self._db.fetch_summaries(thread_id)
         for summary in summaries:
             node: SummaryNode = {
-                "id": summary.id,
-                "content": summary.content,
-                "start_message_id": summary.start_message_id,
-                "end_message_id": summary.end_message_id,
+                "id": summary["id"],
+                "content": summary["content"],
+                "start_message_id": summary["start_message_id"],
+                "end_message_id": summary["end_message_id"],
                 "parent_id": None,
                 "child_ids": [],
             }
-            id_lookup[summary.id] = node
-            start_message_lookup[summary.start_message_id] = summary.id
-            end_message_lookup[summary.end_message_id] = summary.id
+            id_lookup[summary["id"]] = node
+            start_message_lookup[summary["start_message_id"]] = summary["id"]
+            end_message_lookup[summary["end_message_id"]] = summary["id"]
 
         # Map summaries
         for summary in summaries:
             # Find parent
-            parent_end_message_id = self.message_tree.index[summary.start_message_id][
-                "parent_id"
-            ]
+            parent_end_message_id = self.message_tree.index[
+                summary["start_message_id"]
+            ]["parent_id"]
             if parent_end_message_id:
                 parent_id = end_message_lookup[parent_end_message_id]
-                id_lookup[summary.id]["parent_id"] = parent_id
+                id_lookup[summary["id"]]["parent_id"] = parent_id
 
             # Find children
             for child_start_message_id in self.message_tree.index[
-                summary.end_message_id
+                summary["end_message_id"]
             ]["child_ids"]:
                 child_id = start_message_lookup[child_start_message_id]
-                id_lookup[summary.id]["child_ids"].append(child_id)
+                id_lookup[summary["id"]]["child_ids"].append(child_id)
 
         return SummaryIndex(start_message_lookup, end_message_lookup, id_lookup)
 
@@ -162,7 +167,7 @@ class SummaryTree:
         """
         count = 0
         while message_id not in self.index.end_message_lookup:
-            count+=1
+            count += 1
             message_id = self.message_tree.index[message_id]["parent_id"]
         return count
 
