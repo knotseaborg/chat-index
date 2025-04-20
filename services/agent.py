@@ -14,6 +14,7 @@ load_dotenv()
 
 class Agent:
     """Components of a Chat Agent"""
+
     class State(TypedDict):
         messages: Annotated[list, add_messages]
 
@@ -22,7 +23,6 @@ class Agent:
         self._graph_builder = StateGraph(Agent.State)
         self._graph = None
         self._memory = MemorySaver()
-
 
     @property
     def graph(self):
@@ -44,13 +44,12 @@ class Agent:
         """Generates the final response from the LLM"""
         for event in self.graph.stream(
             {"messages": [{"role": "user", "content": user_content}]},
-            config = {"configurable": {"thread_id": thread_id}}
+            config={"configurable": {"thread_id": thread_id}},
         ):
             for value in event.values():
-                #print("Assistant: ", value["messages"][-1])
+                # print("Assistant: ", value["messages"][-1])
                 if isinstance(value["messages"][-1], AIMessage):
                     return value["messages"][-1]
-
 
 
 if __name__ == "__main__":
@@ -59,4 +58,4 @@ if __name__ == "__main__":
     x = chat.generate_response("Hello! My name is Reuben", "1")
     y = chat.generate_response("What is my name?", "1")
 
-    print(x.content,y.content)
+    print(x.content, y.content)

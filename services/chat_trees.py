@@ -1,4 +1,5 @@
-# WIP: Requires mechanism to track root and branch selections
+# TODO Requires mechanism to track root and branch selections
+# TODO Prevent accidentail insertion of multiple root nodes
 
 from typing import Optional, TypedDict
 from dataclasses import dataclass, field
@@ -70,13 +71,22 @@ class MessageTree:
 
         return nodes  # You can now traverse from any node
 
-    def add_message(self, message_id: int, message_content: str, prev_message_id: int):
+    def add_message(
+        self, message_id: int, message_content: str, prev_message_id: Optional[int]
+    ):
         """Adds message to the tree"""
         self.index[message_id] = {
             "id": message_id,
             "content": message_content,
             "parent_id": prev_message_id,
+            "child_ids": [],
         }
+        if prev_message_id is None:
+            print("A new root node has been created")
+            return
+        print(
+            f"A new message: {message_id} has been attached to message: {prev_message_id}"
+        )
         self.index[prev_message_id]["child_ids"].append(message_id)
 
 
@@ -131,9 +141,9 @@ class SummaryTree:
         return SummaryIndex(start_message_lookup, end_message_lookup, id_lookup)
 
     def add_summary(
-        self, _id: int, content: str, start_message_id: int, end_message_id: int
+        self, summary_id: int, content: str, start_message_id: int, end_message_id: int
     ):
-        """Adds summary to the summary tree, and the associated lookup"""
+        """Adds summary to the summary tree, and the associated lookups"""
         prev_summary_end_message_id = self.message_tree.index[start_message_id][
             "parent_id"
         ]
@@ -145,20 +155,21 @@ class SummaryTree:
             summary_parent = None
 
         summary: SummaryNode = {
-            "id": _id,
+            "id": summary_id,
             "content": content,
             "start_message_id": start_message_id,
             "end_message_id": end_message_id,
             "parent_id": summary_parent,
             "child_ids": [],
         }
-
-        self.index.summary_id_lookup[prev_summary_end_message_id]["child_ids"].append(
-            _id
-        )
-        self.index.summary_id_lookup[id] = summary
-        self.index.start_message_lookup[start_message_id] = _id
-        self.index.end_message_lookup[end_message_id] = _id
+        if prev_summary_end_message_id is not None:
+            prev_summary_id = self.index.end_message_lookup[prev_summary_end_message_id]
+            self.index.summary_id_lookup[prev_summary_id]["child_ids"].append(
+                summary_id
+            )
+        self.index.summary_id_lookup[summary_id] = summary
+        self.index.start_message_lookup[start_message_id] = summary_id
+        self.index.end_message_lookup[end_message_id] = summary_id
 
     def count_unsummarized_messages(self, message_id: int):
         """
@@ -166,42 +177,44 @@ class SummaryTree:
         or message_id is yet to be summarized.
         """
         count = 0
-        while message_id not in self.index.end_message_lookup:
+        while (message_id is not None) and (
+            message_id not in self.index.end_message_lookup
+        ):
             count += 1
             message_id = self.message_tree.index[message_id]["parent_id"]
         return count
 
     def split_summary(
         self,
-        _id: int,
-        pre_id: int,  # pre summary details
-        pre_content: str,
+        summary_id: int,
+        pre_summary_id: int,  # pre summary details
+        pre_summary_content: str,
         branch_off_message_id: int,
-        post_id: int,  # post summary details
-        post_content: str,
+        post_summary_id: int,  # post summary details
+        post_summary_content: str,
     ):
         """
         Replaces the summary identfied by _id, with two summaries
         consisting of pre-and post of splitting at the branch_odd_message_id
         """
-        summary = self.index.summary_id_lookup[_id]
+        summary = self.index.summary_id_lookup[summary_id]
         # Delete summary from indices!
-        del self.index.summary_id_lookup[_id]
+        del self.index.summary_id_lookup[summary_id]
         del self.index.start_message_lookup[summary["start_message_id"]]
         del self.index.end_message_lookup[summary["end_message_id"]]
         # create new summaries with old summary
         pre_summary: SummaryNode = {
-            "id": pre_id,
-            "content": pre_content,
+            "id": pre_summary_id,
+            "content": pre_summary_content,
             "parent_id": summary["parent_id"],
             "start_message_id": summary["start_message_id"],
             "end_message_id": branch_off_message_id,
-            "child_ids": [post_id],
+            "child_ids": [post_summary_id],
         }
         post_summary: SummaryNode = {
-            "id": post_id,
-            "content": post_content,
-            "parent_id": pre_id,
+            "id": post_summary_id,
+            "content": post_summary_content,
+            "parent_id": pre_summary_id,
             # A summary consists of linear chain only, so the below statement is valid
             "start_message_id": self.message_tree.index[branch_off_message_id][
                 "child_ids"
@@ -210,20 +223,16 @@ class SummaryTree:
             "child_ids": summary["child_ids"],
         }
         # Add summary nodes to lookup indices
-        self.index.summary_id_lookup[pre_summary["id"]] = pre_summary
-        self.index.summary_id_lookup[post_summary["id"]] = post_summary
-        self.index.start_message_lookup[pre_summary["start_message_id"]] = pre_summary[
-            "start_message_id"
-        ]
-        self.index.end_message_lookup[pre_summary["end_message_id"]] = pre_summary[
-            "end_message_id"
-        ]
-        self.index.start_message_lookup[post_summary["start_message_id"]] = (
-            post_summary["start_message_id"]
+        self.index.summary_id_lookup[pre_summary_id] = pre_summary
+        self.index.summary_id_lookup[post_summary_id] = post_summary
+        self.index.start_message_lookup[pre_summary["start_message_id"]] = (
+            pre_summary_id
         )
-        self.index.end_message_lookup[post_summary["end_message_id"]] = post_summary[
-            "end_message_id"
-        ]
+        self.index.end_message_lookup[pre_summary["end_message_id"]] = pre_summary_id
+        self.index.start_message_lookup[post_summary["start_message_id"]] = (
+            post_summary_id
+        )
+        self.index.end_message_lookup[post_summary["end_message_id"]] = post_summary_id
 
 
 class TreeCache:
