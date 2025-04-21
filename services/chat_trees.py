@@ -135,6 +135,8 @@ class SummaryTree:
             for child_start_message_id in self.message_tree.index[
                 summary["end_message_id"]
             ]["child_ids"]:
+                if child_start_message_id not in start_message_lookup:
+                    continue
                 child_id = start_message_lookup[child_start_message_id]
                 id_lookup[summary["id"]]["child_ids"].append(child_id)
 

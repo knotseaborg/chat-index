@@ -1,5 +1,8 @@
 """
 This module handles requests and dispatched then for chat updates
+
+TODO: In branch_off logic.
+Check _is_summary before splitting summary during branch-off.
 """
 
 from typing import Callable, Optional
@@ -86,7 +89,9 @@ class Handler:
         end_message_id = prev_message_id  # prev_message is a valid summarizable content
 
         # This will run atleast once! If not, something is wrong. Must fail loudly!
-        while prev_message_id not in summary_tree.index.end_message_lookup:
+        while (prev_message_id is not None) and (
+            prev_message_id not in summary_tree.index.end_message_lookup
+        ):
             start_message_id = prev_message_id
             message = message_tree.index[prev_message_id]
             summarizable_content.append(message["content"])
@@ -129,13 +134,16 @@ class Handler:
         summary_id = summary_tree.index.start_message_lookup[pre_start_message_id]
         self._db.delete_summary(summary_id)
         pre_summary_id = self._db.insert_summary(
-            pre_content, pre_start_message_id, pre_end_message_id
+            pre_content, pre_start_message_id, pre_end_message_id, embedding_file=None
         )
         post_summary_id = self._db.insert_summary(
-            post_content, post_start_message_id, post_end_message_id
+            post_content,
+            post_start_message_id,
+            post_end_message_id,
+            embedding_file=None,
         )
         # Invalidate cache, force rebuild tree.
-        del self._tree_cache[thread_id]
+        self._tree_cache.delete(thread_id)
         return pre_summary_id, post_summary_id
 
     def _generate_split_pre_summary_data(
@@ -152,11 +160,12 @@ class Handler:
 
         # Iterate in reverse tracking parent id, until the previous summary is reached.
         # Note: A start message will always exist for a summary. Checking not required
-        while message_id not in summary_tree.index.end_message_lookup:
+        while message_id not in summary_tree.index.start_message_lookup:
             contents.append(message_tree.index[message_id]["content"])
-            pre_start_message_id = message_id
             message_id = message_tree.index[message_id]["parent_id"]
-
+        # Set start-message and its contents
+        pre_start_message_id = message_id
+        contents.append(message_tree.index[message_id]["content"])
         # Generate pre-summary content
         contents.reverse()  # Note: because of reverse traversal
         pre_content = self._llm_ops.generate_summary(contents)
@@ -175,12 +184,14 @@ class Handler:
         post_start_message_id = post_end_message_id = message_id = message_tree.index[
             branch_off_message_id
         ]["child_ids"][0]
-        while message_id not in summary_tree.index.start_message_lookup:
+        while message_id not in summary_tree.index.end_message_lookup:
             contents.append(message_tree.index[message_id]["content"])
             post_end_message_id = message_id
             # Note: A summary always contains a linear chain of messages
             message_id = message_tree.index[message_id]["child_ids"][0]
-
+        # Set end-message and its contents
+        post_end_message_id = message_id
+        contents.append(message_tree.index[message_id]["content"])
         # generate post-summary
         post_content = self._llm_ops.generate_summary(contents)
         return post_content, post_start_message_id, post_end_message_id
@@ -259,6 +270,7 @@ class ChatUpdateDispatcher:
             "add_message": self._handler.add_message,
             "branch_off": self._handler.split_summary,
             "delete_branch": self._handler.delete_branch,
+            # delete any subtree
         }
 
     def dispatch(self, action: str, payload: dict) -> dict:

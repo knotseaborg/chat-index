@@ -129,14 +129,14 @@ class DB:
                 return message.id
 
     def insert_link(
-        self, thread_id: int, prev_msg_id: int, next_msg_id: int
+        self, thread_id: int, prev_message_id: int, next_message_id: int
     ) -> int:  # For every message, add the double ll links
         with self.Session() as session:
             with session.begin():
                 link = models.Link(
                     thread_id=thread_id,
-                    previous_message_id=prev_msg_id,
-                    next_message_id=next_msg_id,
+                    previous_message_id=prev_message_id,
+                    next_message_id=next_message_id,
                 )
                 session.add(link)
                 session.flush()
