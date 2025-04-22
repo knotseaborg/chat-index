@@ -249,3 +249,7 @@ def test_dispatcher_split_summary(db, tree_cache):
     assert summary_tree.index.summary_id_lookup[1]["end_message_id"] == 1
     assert summary_tree.index.summary_id_lookup[2]["start_message_id"] == 2
     assert summary_tree.index.summary_id_lookup[2]["end_message_id"] == 2
+
+
+## TODO: Test for branch-off with and without summaries
+## TODO: Test for message-deletion

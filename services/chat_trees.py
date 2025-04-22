@@ -186,6 +186,26 @@ class SummaryTree:
             message_id = self.message_tree.index[message_id]["parent_id"]
         return count
 
+    def is_summarized(self, message_id: int) -> bool:
+        """
+        Determines if the message is already a part of a summary.
+        For this, if iterated forward, an end_message_id for a summary must be detected.
+        """
+        while True:
+            # Summary exists
+            if message_id in self.index.end_message_lookup:
+                return True
+            child_ids = self.message_tree.index[message_id]["child_ids"]
+            # After having run through the messages
+            if child_ids == []:
+                return False
+            # Within a summary, there can only be linear chain of messages.
+            # Even for non-summarized messages, a branch-off forces summary generation.
+            assert len(child_ids) == 1
+            message_id = child_ids[0]
+
+        # No returns. This must fail loudly
+
     def split_summary(
         self,
         summary_id: int,

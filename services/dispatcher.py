@@ -1,8 +1,8 @@
 """
 This module handles requests and dispatched then for chat updates
 
-TODO: In branch_off logic.
-Check _is_summary before splitting summary during branch-off.
+TODO: Message-deletion (From anywhere)
+Need to modify the branch-deletion logic for this.
 """
 
 from typing import Callable, Optional
@@ -59,11 +59,15 @@ class Handler:
         self,
         thread_id: int,
         prev_message_id: Optional[int],
-        message_content: str,
-        batch_size: int,
+        force: bool,
+        message_content: Optional[str] = None,
+        batch_size: Optional[int] = None,
     ):
         """
         Supports the add_message method; by being executable through trigger parameter.
+
+        Note: If force is set to true, then messaged_content and batch_size are not considered for
+        topic shift and min length check before summary generation.
 
         Assumption: prev_message_id is either an end_node of summary, or not summarized at all.
         Note:Care must be taken for this assumption to not be violated
@@ -73,16 +77,27 @@ class Handler:
         message_tree, summary_tree = self._tree_cache.get(thread_id)
 
         ## Check if summarization is required
-        if (
-            (prev_message_id is None)
-            or (summary_tree.count_unsummarized_messages(prev_message_id) < batch_size)
-            or (
-                not self._llm_ops.detect_topic_shift(
-                    message_tree.index[prev_message_id]["content"], message_content
+        if force is False:
+            try:
+                assert message_content is not None
+                assert batch_size is not None
+            except AssertionError as err:
+                print(
+                    f"If force is set to False, message_content and batch_size must be provided: {err}"
                 )
-            )
-        ):
-            return None
+            if (
+                (prev_message_id is None)
+                or (
+                    summary_tree.count_unsummarized_messages(prev_message_id)
+                    < batch_size
+                )
+                or (
+                    not self._llm_ops.detect_topic_shift(
+                        message_tree.index[prev_message_id]["content"], message_content
+                    )
+                )
+            ):
+                return None
 
         # Accumulate summarizable content, and map the spanning nodes
         summarizable_content: list[str] = []
@@ -105,6 +120,22 @@ class Handler:
         summary_tree.add_summary(  # Add summary to tree
             summary_id, summarized_content, start_message_id, end_message_id
         )
+
+    def branch_off(self, thread_id: int, branch_off_message_id: int) -> int:
+        """
+        Cleanly clamp down the summary for the messages above, and below before a branch_off
+        """
+        _, summary_tree = self._tree_cache.get(thread_id)
+        # When the branch is within a pre-existing summary
+        if summary_tree.is_summarized(branch_off_message_id):
+            self.split_summary(thread_id, branch_off_message_id)
+        else:  # When the branch-off message is not summarized yet.
+            # Force a summarization of the pre-split messages
+            self._add_summary(thread_id, branch_off_message_id, force=True)
+
+        # The next expected behaviour is, additon of a new message to the branch_off_message_id.
+        # So, return branch_off_message_id
+        return branch_off_message_id
 
     def split_summary(
         self, thread_id: int, branch_off_message_id: int
@@ -268,7 +299,7 @@ class ChatUpdateDispatcher:
         # Action registry
         self.handlers: dict[str, Callable[[dict], dict]] = {
             "add_message": self._handler.add_message,
-            "branch_off": self._handler.split_summary,
+            "branch_off": self._handler.branch_off,
             "delete_branch": self._handler.delete_branch,
             # delete any subtree
         }
