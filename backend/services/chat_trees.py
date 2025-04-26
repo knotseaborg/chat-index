@@ -1,5 +1,4 @@
-# TODO Requires mechanism to track root and branch selections
-# TODO Prevent accidentail insertion of multiple root nodes
+# TODO Requires mechanism to track root and branch selections (Maybe)
 
 from typing import Optional, TypedDict
 from dataclasses import dataclass, field
