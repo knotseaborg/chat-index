@@ -8,7 +8,7 @@ import { fetchMessageData, generateMessageList } from "@/store/chat"
 import { Message as MessageProps } from "@/types/message"
 
 function Message(props: MessageProps) {
-    return <div id={props.id.toString()} className={`${props["role"] == "user" ? "pl-2" : "pr-2"}`}>
+    return <div key={props.id.toString()} className={`${props["role"] == "user" ? "pl-2" : "pr-2"}`}>
         <label>{props.role}</label>
         <p>{props.content}</p>
     </div>
