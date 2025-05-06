@@ -3,6 +3,13 @@ This module handles requests and dispatched then for chat updates
 
 TODO: Message-deletion (From anywhere)
 Need to modify the branch-deletion logic for this.
+Could modify delete-branch for this!
+Is mid-summary exists:
+    Clench upper portion, resummarize, then delete recursively.
+Else:
+    Just delete recursively
+
+TODO: More test cases, preferably full dummy test case of all options
 """
 
 from typing import Callable, Optional
@@ -301,7 +308,7 @@ class ChatUpdateDispatcher:
             "add_message": self._handler.add_message,
             "branch_off": self._handler.branch_off,
             "delete_branch": self._handler.delete_branch,
-            # delete any subtree
+            # delete any subtree | delete any message
         }
 
     def dispatch(self, action: str, payload: dict) -> dict:

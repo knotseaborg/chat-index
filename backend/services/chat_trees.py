@@ -1,5 +1,3 @@
-# TODO Requires mechanism to track root and branch selections (Maybe)
-
 from typing import Optional, TypedDict
 from dataclasses import dataclass, field
 from collections import OrderedDict
@@ -36,13 +34,12 @@ class SummaryIndex:
 
 
 class MessageTree:
-    # WIP: Requires mechanism to track root and branch selections
     def __init__(self, thread_id: int, db: DB):
         self._db = db
         self.thread_id = thread_id
-        self.index = self._load_message_tree(thread_id)
+        self.root_message_id, self.index = self._load_message_tree(thread_id)
 
-    def _load_message_tree(self, thread_id: int) -> dict[int, MessageNode]:
+    def _load_message_tree(self, thread_id: int) -> tuple[int, dict[int, MessageNode]]:
         """
         Builds an in-memory tree of messages from the thread's links.
         Returns a dict of message_id → MessageNode
@@ -68,7 +65,11 @@ class MessageTree:
             child["parent_id"] = parent["id"]
             parent["child_ids"].append(child["id"])
 
-        return nodes  # You can now traverse from any node
+        for node in nodes.values():
+            if node["parent_id"] is None:  # Only root node will not have parent_id
+                return node["id"], nodes
+
+        raise AssertionError("root_message_id must exist for the message tree")
 
     def add_message(
         self, message_id: int, message_content: str, prev_message_id: Optional[int]
@@ -95,7 +96,7 @@ class SummaryTree:
 
         self._db = db  # Used to fetch summaries from db
         self.message_tree = message_tree  # Used to walk the tree
-        self.index = self._load_index(self.message_tree.thread_id)
+        self.root_summary_id, self.index = self._load_index(self.message_tree.thread_id)
 
     def _load_index(self, thread_id: int):
         """Loads the index for quick sunmmary traceability"""
@@ -139,7 +140,11 @@ class SummaryTree:
                 child_id = start_message_lookup[child_start_message_id]
                 id_lookup[summary["id"]]["child_ids"].append(child_id)
 
-        return SummaryIndex(start_message_lookup, end_message_lookup, id_lookup)
+        # Intended: Will default to None, if the summary does not exist!
+        root_summary_id = start_message_lookup.get(self.message_tree.root_message_id)
+        return root_summary_id, SummaryIndex(
+            start_message_lookup, end_message_lookup, id_lookup
+        )
 
     def add_summary(
         self, summary_id: int, content: str, start_message_id: int, end_message_id: int
